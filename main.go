@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/net/html"
@@ -64,19 +65,47 @@ func main() {
 
 	hrefs := extractIconUrls(body, rels)
 
+	if len(hrefs) == 0 {
+		hrefs = append(hrefs, "/favicon.ico")
+	}
+
 	for _, v := range hrefs {
-		u, err := url.Parse(*furl + v)
+		var u *url.URL
+		var err error
+
+		// Need more exhaustive checking of the returned href
+		if strings.HasPrefix(v, "http") || strings.HasPrefix(v, "https") {
+			u, err = url.Parse(v)
+		} else {
+			u, err = url.Parse(*furl + v)
+		}
 		if err != nil {
-			fmt.Println("err")
+			fmt.Println(err)
 			continue
 		}
 
 		resp, err := c.Get(u.String())
 		if err != nil {
-			fmt.Println("failed to download get:", v)
+			fmt.Println("failed to download:", v)
+			os.Exit(1)
 		}
 		defer resp.Body.Close()
-		// Decode image
+
+		ct := resp.Header.Get("Content-Type")
+		mt, _, err := mime.ParseMediaType(ct)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
+		switch {
+		case mt == "image/x-icon" || mt == "image/vnd.microsoft.icon":
+			fmt.Println(mt)
+		case mt == "image/png":
+			fmt.Println(mt)
+		default:
+			fmt.Println("cannot handle mimetype:", mt)
+		}
 	}
 }
 
