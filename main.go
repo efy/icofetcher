@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"image"
+	"image/png"
 	"io/ioutil"
 	"mime"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/biessek/golang-ico"
 	"golang.org/x/net/html"
 )
 
@@ -25,6 +28,14 @@ var (
 
 	furl = flag.String("url", "", "The URL to fetch icons for")
 )
+
+type Icon struct {
+	ImageConfig *image.Config
+	Image       *image.Image
+	URL         *url.URL
+	Rel         string
+	Mime        string
+}
 
 func main() {
 	flag.Parse()
@@ -69,9 +80,12 @@ func main() {
 		hrefs = append(hrefs, "/favicon.ico")
 	}
 
+	var icons []Icon
+
 	for _, v := range hrefs {
 		var u *url.URL
 		var err error
+		icon := Icon{}
 
 		// Need more exhaustive checking of the returned href
 		if strings.HasPrefix(v, "http") || strings.HasPrefix(v, "https") {
@@ -86,10 +100,9 @@ func main() {
 
 		resp, err := c.Get(u.String())
 		if err != nil {
-			fmt.Println("failed to download:", v)
+			fmt.Println("failed to download:", u.String())
 			os.Exit(1)
 		}
-		defer resp.Body.Close()
 
 		ct := resp.Header.Get("Content-Type")
 		mt, _, err := mime.ParseMediaType(ct)
@@ -98,14 +111,41 @@ func main() {
 			continue
 		}
 
+		icon.URL = u
+		icon.Mime = mt
+
 		switch {
 		case mt == "image/x-icon" || mt == "image/vnd.microsoft.icon":
-			fmt.Println(mt)
+			icoConf, err := ico.DecodeConfig(resp.Body)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			icoImg, err := ico.Decode(resp.Body)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			icon.ImageConfig = &icoConf
+			icon.Image = &icoImg
+			icons = append(icons, icon)
 		case mt == "image/png":
-			fmt.Println(mt)
+			pngImage, err := png.DecodeConfig(resp.Body)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			icon.ImageConfig = &pngImage
+			icons = append(icons, icon)
 		default:
 			fmt.Println("cannot handle mimetype:", mt)
 		}
+
+		resp.Body.Close()
+	}
+
+	for _, icon := range icons {
+		fmt.Printf("%v width: %v, height: %v\n", icon.URL, icon.ImageConfig.Width, icon.ImageConfig.Height)
 	}
 }
 
